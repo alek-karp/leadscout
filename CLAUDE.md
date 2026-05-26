@@ -14,6 +14,20 @@ Default to using Bun instead of Node.js.
 - Use `bunx <package> <command>` instead of `npx <package> <command>`
 - Bun automatically loads .env, so don't use dotenv.
 
+## Commit messages
+
+Format: `prefix(area): message`
+
+- **prefix**: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
+- **area**: the module or file area changed, e.g. `pipeline`, `attio-store`, `enrich`
+- **message**: short, lowercase, imperative
+
+Example: `feat(attio-store): add upsert by domain`
+
+## Environment variables
+
+Whenever a new environment variable is introduced, always update `.env.example` with the variable name, an empty value, and a comment describing what it is and where to get it.
+
 ## APIs
 
 - `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.

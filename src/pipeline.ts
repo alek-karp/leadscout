@@ -1,6 +1,6 @@
 import { CANADIAN_CITIES, QUERY_TEMPLATES } from "./lib/cities.ts";
 import { searchClinics } from "./lib/exa-discover.ts";
-import { getExistingLeads, appendLead, ensureHeaders } from "./lib/csv-store.ts";
+import { getExistingLeads, appendLead, ensureHeaders } from "./lib/attio-store.ts";
 import { isDuplicate } from "./agents/deduplicate.ts";
 import { enrichClinic } from "./agents/enrich.ts";
 import { estimateClinicSize } from "./agents/estimate-size.ts";
