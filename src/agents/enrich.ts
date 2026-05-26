@@ -14,9 +14,6 @@ export interface EnrichmentResult {
   pageText: string;
 }
 
-const PAGE_SLUGS = ["about", "team", "contact", "staff", "our-team", "about-us", "meet-the-team"];
-const CONTACT_SLUGS = ["contact", "contact-us", "reach-us", "get-in-touch", "connect", "location", "locations"];
-
 interface FetchResult {
   text: string;
   emails: string[];
@@ -71,30 +68,42 @@ async function fetchPage(url: string): Promise<FetchResult> {
   }
 }
 
-function discoverSubpagesFromHtml(html: string, baseUrl: string): string[] {
+function extractLinks(html: string, baseUrl: string): string[] {
   try {
     const $ = cheerio.load(html);
     const origin = new URL(baseUrl).origin;
-    const found: string[] = [];
-
+    const links: string[] = [];
     $("a[href]").each((_, el) => {
       const href = $(el).attr("href") ?? "";
-      const lower = href.toLowerCase();
-      if (PAGE_SLUGS.some((slug) => lower.includes(slug))) {
-        try {
-          const abs = new URL(href, origin).href;
-          if (!found.includes(abs)) found.push(abs);
-        } catch {}
-      }
+      if (!href.startsWith("http") && !href.startsWith("/")) return;
+      try {
+        const abs = new URL(href, origin).href;
+        if (abs.startsWith(origin) && !links.includes(abs)) links.push(abs);
+      } catch {}
     });
+    return links;
+  } catch {
+    return [];
+  }
+}
 
-    // Always probe common contact slugs directly in case they're not in the nav
-    for (const slug of CONTACT_SLUGS) {
-      const url = `${origin}/${slug}`;
-      if (!found.includes(url)) found.push(url);
-    }
+async function discoverSubpages(html: string, baseUrl: string): Promise<string[]> {
+  const links = extractLinks(html, baseUrl);
+  if (links.length === 0) return [];
 
-    return found.slice(0, 6);
+  const prompt = `You are helping scrape a therapy clinic website to find contact info and owner/team details.
+
+Here are all the internal links found on the homepage:
+${links.slice(0, 80).join("\n")}
+
+Return a JSON object with one field:
+- urls: array of up to 3 URLs most likely to contain contact information, phone numbers, email addresses, or owner/team names
+
+Only include URLs from the list above. Return an empty array if none seem relevant.`;
+
+  try {
+    const { urls } = await generateJSON<{ urls: string[] }>(prompt);
+    return Array.isArray(urls) ? urls.slice(0, 3) : [];
   } catch {
     return [];
   }
@@ -119,7 +128,7 @@ export async function enrichClinic(clinic: DiscoveredClinic): Promise<Enrichment
     } catch {}
   }
 
-  const subpages = discoverSubpagesFromHtml(homepageHtml, baseUrl);
+  const subpages = await discoverSubpages(homepageHtml, baseUrl);
 
   const homepageFetch: FetchResult = homepageHtml
     ? extractFromHtml(homepageHtml)
