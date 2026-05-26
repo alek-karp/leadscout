@@ -6,8 +6,16 @@ import { enrichClinic } from "./agents/enrich.ts";
 import { estimateClinicSize } from "./agents/estimate-size.ts";
 import { scoreLead } from "./agents/score.ts";
 
+function parseArgs() {
+  const numArg = process.argv.find((a) => a.startsWith("--num="));
+  const num = numArg ? parseInt(numArg.split("=")[1]!, 10) : 10;
+  if (isNaN(num) || num < 1) throw new Error(`Invalid --num value: ${numArg}`);
+  return { num };
+}
+
 async function run() {
-  console.log(`[${new Date().toISOString()}] Pipeline started`);
+  const { num } = parseArgs();
+  console.log(`[${new Date().toISOString()}] Pipeline started (${num} results/query)`);
 
   await ensureHeaders();
 
@@ -26,7 +34,7 @@ async function run() {
 
       let places;
       try {
-        places = await searchClinics(queryTemplate, city);
+        places = await searchClinics(queryTemplate, city, num);
       } catch (err) {
         console.error(`  Places search failed: ${err}`);
         continue;

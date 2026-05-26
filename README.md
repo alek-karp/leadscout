@@ -7,7 +7,7 @@ Automated B2B lead discovery and enrichment pipeline for therapy clinics. Search
 1. **Discover** — Exa searches for clinics across configured cities and query templates
 2. **Enrich** — scrapes each clinic's website (homepage + contact/about pages) to extract owner name, email, phone, and booking platform
 3. **Score** — classifies each lead as `Ready to contact`, `Needs review`, or `Skip`
-4. **Output** — appends results to a CSV file, skipping duplicates
+4. **Output** — upserts results to Attio as Company records, skipping duplicates
 
 ## Setup
 
@@ -22,12 +22,13 @@ Fill in `.env.local`:
 |---|---|
 | `EXA_API_KEY` | From [dashboard.exa.ai](https://dashboard.exa.ai) |
 | `DEEPSEEK_API_KEY` | From [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
-| `CSV_PATH` | Output file path (default: `leads.csv`) |
+| `ATTIO_API_KEY` | From [app.attio.com/settings/api-keys](https://app.attio.com/settings/api-keys) |
 
 ## Run
 
 ```bash
-bun src/pipeline.ts
+bun src/pipeline.ts          # 10 results per query (default)
+bun src/pipeline.ts --num=25 # custom results per query
 ```
 
-Results are written to `leads.csv` (or the path set in `CSV_PATH`).
+Results are upserted to Attio as Company records.

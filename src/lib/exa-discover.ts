@@ -15,12 +15,12 @@ export interface DiscoveredClinic {
   exaPageText: string;
 }
 
-export async function searchClinics(queryTemplate: string, city: string): Promise<DiscoveredClinic[]> {
+export async function searchClinics(queryTemplate: string, city: string, numResults = 10): Promise<DiscoveredClinic[]> {
   const query = queryTemplate.replace("{city}", city);
 
   const results = await exa.search(query, {
     type: "auto",
-    numResults: 10,
+    numResults,
     contents: { text: { maxCharacters: 8000 } },
   });
 
