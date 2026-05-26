@@ -15,11 +15,43 @@ export interface EnrichmentResult {
 }
 
 const PAGE_SLUGS = ["about", "team", "contact", "staff", "our-team", "about-us", "meet-the-team"];
+const CONTACT_SLUGS = ["contact", "contact-us", "reach-us", "get-in-touch", "connect", "location", "locations"];
 
 interface FetchResult {
   text: string;
   emails: string[];
   phones: string[];
+}
+
+function extractFromHtml(html: string): FetchResult {
+  const $ = cheerio.load(html);
+
+  const emails: string[] = [];
+  const phones: string[] = [];
+  $("a[href^='mailto:']").each((_, el) => {
+    const email = $(el).attr("href")?.replace("mailto:", "").split("?")[0].trim();
+    if (email && !emails.includes(email)) emails.push(email);
+  });
+  $("a[href^='tel:']").each((_, el) => {
+    const phone = $(el).attr("href")?.replace("tel:", "").trim();
+    if (phone && !phones.includes(phone)) phones.push(phone);
+  });
+
+  $("script, style, nav, [role=banner]").remove();
+  const text = $("body").text().replace(/\s+/g, " ").trim().slice(0, 8000);
+
+  // Regex fallback for plain-text contacts not wrapped in mailto/tel links
+  const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+  const phoneRegex = /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/g;
+  for (const match of text.matchAll(emailRegex)) {
+    if (!emails.includes(match[0])) emails.push(match[0]);
+  }
+  for (const match of text.matchAll(phoneRegex)) {
+    const normalized = match[0].trim();
+    if (!phones.includes(normalized)) phones.push(normalized);
+  }
+
+  return { text, emails, phones };
 }
 
 async function fetchPage(url: string): Promise<FetchResult> {
@@ -32,40 +64,17 @@ async function fetchPage(url: string): Promise<FetchResult> {
       console.warn(`    fetch ${url} → ${res.status}`);
       return { text: "", emails: [], phones: [] };
     }
-    const html = await res.text();
-    const $ = cheerio.load(html);
-
-    // Extract mailto/tel links before stripping anything
-    const emails: string[] = [];
-    const phones: string[] = [];
-    $("a[href^='mailto:']").each((_, el) => {
-      const email = $(el).attr("href")?.replace("mailto:", "").split("?")[0].trim();
-      if (email && !emails.includes(email)) emails.push(email);
-    });
-    $("a[href^='tel:']").each((_, el) => {
-      const phone = $(el).attr("href")?.replace("tel:", "").trim();
-      if (phone && !phones.includes(phone)) phones.push(phone);
-    });
-
-    $("script, style, nav, [role=banner]").remove();
-    const text = $("body").text().replace(/\s+/g, " ").trim().slice(0, 8000);
-    return { text, emails, phones };
+    return extractFromHtml(await res.text());
   } catch (err) {
     console.warn(`    fetch ${url} → ${err}`);
     return { text: "", emails: [], phones: [] };
   }
 }
 
-async function discoverSubpages(baseUrl: string): Promise<string[]> {
+function discoverSubpagesFromHtml(html: string, baseUrl: string): string[] {
   try {
-    const res = await fetch(baseUrl, {
-      signal: AbortSignal.timeout(10_000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; LeadBot/1.0)" },
-    });
-    if (!res.ok) return [];
-    const html = await res.text();
     const $ = cheerio.load(html);
-    const base = new URL(baseUrl).origin;
+    const origin = new URL(baseUrl).origin;
     const found: string[] = [];
 
     $("a[href]").each((_, el) => {
@@ -73,13 +82,19 @@ async function discoverSubpages(baseUrl: string): Promise<string[]> {
       const lower = href.toLowerCase();
       if (PAGE_SLUGS.some((slug) => lower.includes(slug))) {
         try {
-          const abs = new URL(href, base).href;
+          const abs = new URL(href, origin).href;
           if (!found.includes(abs)) found.push(abs);
         } catch {}
       }
     });
 
-    return found.slice(0, 4);
+    // Always probe common contact slugs directly in case they're not in the nav
+    for (const slug of CONTACT_SLUGS) {
+      const url = `${origin}/${slug}`;
+      if (!found.includes(url)) found.push(url);
+    }
+
+    return found.slice(0, 6);
   } catch {
     return [];
   }
@@ -91,9 +106,26 @@ export async function enrichClinic(clinic: DiscoveredClinic): Promise<Enrichment
   }
 
   const baseUrl = clinic.website.startsWith("http") ? clinic.website : `https://${clinic.website}`;
-  const subpages = await discoverSubpages(baseUrl);
 
-  const pages = await Promise.all([baseUrl, ...subpages].map(fetchPage));
+  // Fetch homepage HTML for link discovery (skip if Exa already gave us text)
+  let homepageHtml = "";
+  if (!clinic.exaPageText) {
+    try {
+      const res = await fetch(baseUrl, {
+        signal: AbortSignal.timeout(10_000),
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; LeadBot/1.0)" },
+      });
+      if (res.ok) homepageHtml = await res.text();
+    } catch {}
+  }
+
+  const subpages = discoverSubpagesFromHtml(homepageHtml, baseUrl);
+
+  const homepageFetch: FetchResult = homepageHtml
+    ? extractFromHtml(homepageHtml)
+    : { text: clinic.exaPageText, emails: [], phones: [] };
+  const subpagesFetches = await Promise.all(subpages.map(fetchPage));
+  const pages = [homepageFetch, ...subpagesFetches];
   const combinedText = pages.map((p) => p.text).join("\n\n").slice(0, 16000);
 
   // Collect all hard-linked emails/phones directly from HTML — more reliable than LLM extraction

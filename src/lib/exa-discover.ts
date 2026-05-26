@@ -12,6 +12,7 @@ export interface DiscoveredClinic {
   address: string;
   city: string;
   sourceQuery: string;
+  exaPageText: string;
 }
 
 export async function searchClinics(queryTemplate: string, city: string): Promise<DiscoveredClinic[]> {
@@ -19,8 +20,8 @@ export async function searchClinics(queryTemplate: string, city: string): Promis
 
   const results = await exa.search(query, {
     type: "auto",
-    numResults: 30,
-    contents: { highlights: true },
+    numResults: 10,
+    contents: { text: { maxCharacters: 8000 } },
   });
 
   return results.results
@@ -32,5 +33,6 @@ export async function searchClinics(queryTemplate: string, city: string): Promis
       address: "",
       city,
       sourceQuery: query,
+      exaPageText: (r as any).text ?? "",
     }));
 }

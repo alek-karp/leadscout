@@ -6,6 +6,9 @@ out
 dist
 *.tgz
 
+# data
+leads.csv
+
 # code coverage
 coverage
 *.lcov

@@ -34,7 +34,7 @@ export function scoreLead(
 
   let leadStatus: LeadStatus;
 
-  if (isGroup && hasOwner && hasContact) {
+  if ((isGroup || hasOwner) && hasContact) {
     leadStatus = "Ready to contact";
   } else if (!clinic.website) {
     leadStatus = "Skip";
