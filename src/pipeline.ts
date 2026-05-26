@@ -1,5 +1,5 @@
 import { CANADIAN_CITIES, QUERY_TEMPLATES } from "./lib/cities.ts";
-import { searchPlaces } from "./lib/google-places.ts";
+import { searchClinics } from "./lib/exa-discover.ts";
 import { getExistingLeads, appendLead, ensureHeaders } from "./lib/csv-store.ts";
 import { isDuplicate } from "./agents/deduplicate.ts";
 import { enrichClinic } from "./agents/enrich.ts";
@@ -26,7 +26,7 @@ async function run() {
 
       let places;
       try {
-        places = await searchPlaces(queryTemplate, city);
+        places = await searchClinics(queryTemplate, city);
       } catch (err) {
         console.error(`  Places search failed: ${err}`);
         continue;
@@ -50,16 +50,17 @@ async function run() {
 
         console.log(`    → ${lead.leadStatus} | owner: ${lead.ownerName || "none"} | size: ${lead.estimatedSize} (${lead.classification})`);
 
-        if (lead.leadStatus !== "Skip") {
-          await appendLead(lead);
-          existing.push({
-            name: clinic.name,
-            domain: clinic.website ? new URL(clinic.website.startsWith("http") ? clinic.website : `https://${clinic.website}`).hostname.replace(/^www\./, "") : "",
-            phone: clinic.phone.replace(/\D/g, ""),
-          });
-          appended++;
-        } else {
+        await appendLead(lead);
+        existing.push({
+          name: clinic.name,
+          domain: clinic.website ? new URL(clinic.website.startsWith("http") ? clinic.website : `https://${clinic.website}`).hostname.replace(/^www\./, "") : "",
+          phone: clinic.phone.replace(/\D/g, ""),
+        });
+
+        if (lead.leadStatus === "Skip") {
           skipped++;
+        } else {
+          appended++;
         }
       }
     }

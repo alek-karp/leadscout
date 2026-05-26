@@ -1,6 +1,6 @@
 import Fuse from "fuse.js";
 import type { ExistingLead } from "../lib/csv-store.ts";
-import type { DiscoveredClinic } from "../lib/google-places.ts";
+import type { DiscoveredClinic } from "../lib/exa-discover.ts";
 
 function normalizeDomain(url: string): string {
   try {

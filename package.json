@@ -13,8 +13,9 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
     "cheerio": "^1.2.0",
-    "fuse.js": "^7.3.0"
+    "exa-js": "^2.13.0",
+    "fuse.js": "^7.3.0",
+    "openai": "^6.39.0"
   }
 }
