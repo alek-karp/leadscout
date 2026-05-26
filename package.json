@@ -1,0 +1,20 @@
+{
+  "name": "workflows",
+  "module": "src/pipeline.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "pipeline": "bun run src/pipeline.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "cheerio": "^1.2.0",
+    "fuse.js": "^7.3.0"
+  }
+}
