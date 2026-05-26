@@ -1,4 +1,5 @@
 import type { LeadRow } from "../agents/score.ts";
+import { CITY_COORDS } from "./cities.ts";
 
 const ATTIO_API = "https://api.attio.com/v2";
 
@@ -85,28 +86,25 @@ export async function appendLead(lead: LeadRow): Promise<void> {
   }
 
   // Standard Attio company attributes
-  if (lead.linkedin) values.linkedin_url = [{ value: lead.linkedin }];
-  if (lead.instagram) values.twitter_handle = [{ value: lead.instagram }]; // closest built-in for social
+  if (lead.linkedin) values.linkedin = [{ value: lead.linkedin }];
+  if (lead.instagram) values.instagram = [{ value: lead.instagram }];
 
-  // Custom attributes — these must exist in your Attio workspace
-  // Create them at: Settings → Objects → Companies → Attributes
-  const customFields: Record<string, string> = {
-    owner_name: lead.ownerName,
-    owner_role: lead.ownerRole,
-    email: lead.email,
-    phone: lead.phone,
-    city: lead.city,
-    estimated_size: lead.estimatedSize,
-    size_confidence: lead.confidence,
-    size_classification: lead.classification,
-    contact_page: lead.contactPage,
-    booking_platform: lead.bookingPlatform,
-    lead_status: lead.leadStatus,
-    date_added: lead.dateAdded,
-  };
+  // Custom attributes
+  if (lead.phone) {
+    const e164 = lead.phone.startsWith("+") ? lead.phone : `+1${lead.phone.replace(/\D/g, "")}`;
+    values.phone_number = [{ original_phone_number: e164 }];
+  }
+  if (lead.email) values.email = [{ value: lead.email }];
 
-  for (const [slug, value] of Object.entries(customFields)) {
-    if (value) values[slug] = [{ value }];
+  if (lead.city) {
+    const coords = CITY_COORDS[lead.city];
+    values.primary_location = [{
+      line_1: "", line_2: "", line_3: "", line_4: "",
+      locality: lead.city,
+      region: "", postcode: "",
+      country_code: "CA",
+      ...(coords ?? { latitude: "0", longitude: "0" }),
+    }];
   }
 
   const res = await fetch(`${ATTIO_API}/objects/companies/records?matching_attribute=domains`, {
