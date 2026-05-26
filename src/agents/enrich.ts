@@ -20,35 +20,86 @@ interface FetchResult {
   phones: string[];
 }
 
+const EMAIL_REGEX = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+// Matches NA and international formats: +1 800 555-1234, (555) 867-5309, +44 20 7946 0958, etc.
+const PHONE_REGEX = /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}(?:\s*(?:ext|x|ext\.)\s*\d{1,5})?|\+\d{1,3}[-.\s]\d{1,4}[-.\s]\d{3,4}[-.\s]\d{3,4}/g;
+const OBFUSCATED_EMAIL_REGEX = /[a-zA-Z0-9._%+\-]+\s*(?:\[at\]|\bat\b|@)\s*[a-zA-Z0-9.\-]+\s*(?:\[dot\]|\bdot\b|\.)\s*[a-zA-Z]{2,}/gi;
+
+function normalizePhone(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+function deobfuscateEmail(raw: string): string {
+  return raw.replace(/\s*\[at\]\s*|\s+at\s+/i, "@").replace(/\s*\[dot\]\s*|\s+dot\s+/gi, ".").replace(/\s/g, "");
+}
+
+function collectEmails(text: string, into: string[], seen: Set<string>) {
+  for (const match of text.matchAll(EMAIL_REGEX)) {
+    const e = match[0].toLowerCase();
+    if (!seen.has(e)) { seen.add(e); into.push(match[0]); }
+  }
+  for (const match of text.matchAll(OBFUSCATED_EMAIL_REGEX)) {
+    const e = deobfuscateEmail(match[0]).toLowerCase();
+    if (!seen.has(e)) { seen.add(e); into.push(deobfuscateEmail(match[0])); }
+  }
+}
+
+function collectPhones(text: string, into: string[], seen: Set<string>) {
+  for (const match of text.matchAll(PHONE_REGEX)) {
+    const normalized = normalizePhone(match[0]);
+    if (normalized.length >= 10 && !seen.has(normalized)) {
+      seen.add(normalized);
+      into.push(match[0].trim());
+    }
+  }
+}
+
 function extractFromHtml(html: string): FetchResult {
   const $ = cheerio.load(html);
 
   const emails: string[] = [];
   const phones: string[] = [];
+  const emailSeen = new Set<string>();
+  const phoneSeen = new Set<string>();
+
   $("a[href^='mailto:']").each((_, el) => {
-    const email = $(el).attr("href")?.replace("mailto:", "").split("?")[0].trim();
-    if (email && !emails.includes(email)) emails.push(email);
+    const raw = $(el).attr("href")?.replace("mailto:", "").split("?")[0].trim() ?? "";
+    const e = raw.toLowerCase();
+    if (raw && !emailSeen.has(e)) { emailSeen.add(e); emails.push(raw); }
   });
   $("a[href^='tel:']").each((_, el) => {
-    const phone = $(el).attr("href")?.replace("tel:", "").trim();
-    if (phone && !phones.includes(phone)) phones.push(phone);
+    const raw = $(el).attr("href")?.replace("tel:", "").trim() ?? "";
+    const normalized = normalizePhone(raw);
+    if (normalized.length >= 10 && !phoneSeen.has(normalized)) { phoneSeen.add(normalized); phones.push(raw); }
+  });
+
+  // Extract JSON-LD structured data before stripping scripts
+  $("script[type='application/ld+json']").each((_, el) => {
+    try {
+      const data = JSON.parse($(el).text());
+      const entries = Array.isArray(data) ? data : [data];
+      for (const entry of entries) {
+        if (entry.email) collectEmails(entry.email, emails, emailSeen);
+        if (entry.telephone) collectPhones(entry.telephone, phones, phoneSeen);
+      }
+    } catch {}
   });
 
   $("script, style, nav, [role=banner]").remove();
   const text = $("body").text().replace(/\s+/g, " ").trim().slice(0, 8000);
 
-  // Regex fallback for plain-text contacts not wrapped in mailto/tel links
-  const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
-  const phoneRegex = /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/g;
-  for (const match of text.matchAll(emailRegex)) {
-    if (!emails.includes(match[0])) emails.push(match[0]);
-  }
-  for (const match of text.matchAll(phoneRegex)) {
-    const normalized = match[0].trim();
-    if (!phones.includes(normalized)) phones.push(normalized);
-  }
+  collectEmails(text, emails, emailSeen);
+  collectPhones(text, phones, phoneSeen);
 
   return { text, emails, phones };
+}
+
+function extractFromText(text: string): Pick<FetchResult, "emails" | "phones"> {
+  const emails: string[] = [];
+  const phones: string[] = [];
+  collectEmails(text, emails, new Set());
+  collectPhones(text, phones, new Set());
+  return { emails, phones };
 }
 
 async function fetchPage(url: string): Promise<FetchResult> {
@@ -116,23 +167,21 @@ export async function enrichClinic(clinic: DiscoveredClinic): Promise<Enrichment
 
   const baseUrl = clinic.website.startsWith("http") ? clinic.website : `https://${clinic.website}`;
 
-  // Fetch homepage HTML for link discovery (skip if Exa already gave us text)
+  // Always fetch raw HTML — mailto:/tel: hrefs aren't present in Exa's plain text
   let homepageHtml = "";
-  if (!clinic.exaPageText) {
-    try {
-      const res = await fetch(baseUrl, {
-        signal: AbortSignal.timeout(10_000),
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; LeadBot/1.0)" },
-      });
-      if (res.ok) homepageHtml = await res.text();
-    } catch {}
-  }
+  try {
+    const res = await fetch(baseUrl, {
+      signal: AbortSignal.timeout(10_000),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; LeadBot/1.0)" },
+    });
+    if (res.ok) homepageHtml = await res.text();
+  } catch {}
 
   const subpages = await discoverSubpages(homepageHtml, baseUrl);
 
   const homepageFetch: FetchResult = homepageHtml
     ? extractFromHtml(homepageHtml)
-    : { text: clinic.exaPageText, emails: [], phones: [] };
+    : { text: clinic.exaPageText ?? "", ...extractFromText(clinic.exaPageText ?? "") };
   const subpagesFetches = await Promise.all(subpages.map(fetchPage));
   const pages = [homepageFetch, ...subpagesFetches];
   const combinedText = pages.map((p) => p.text).join("\n\n").slice(0, 16000);
