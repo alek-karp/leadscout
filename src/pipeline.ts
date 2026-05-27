@@ -5,23 +5,39 @@ import { isDuplicate } from "./agents/deduplicate.ts";
 import { enrichClinic } from "./agents/enrich.ts";
 import { estimateClinicSize } from "./agents/estimate-size.ts";
 import { scoreLead } from "./agents/score.ts";
+import { isDue, mark, resetAll, close } from "./lib/checkpoint.ts";
 
 function parseArgs() {
-  const numArg = process.argv.find((a) => a.startsWith("--num="));
+  const args = process.argv;
+
+  const numArg = args.find((a) => a.startsWith("--num="));
   const num = numArg ? parseInt(numArg.split("=")[1]!, 10) : 10;
   if (isNaN(num) || num < 1) throw new Error(`Invalid --num value: ${numArg}`);
-  return { num };
+
+  const cooldownArg = args.find((a) => a.startsWith("--cooldown="));
+  const cooldown = cooldownArg ? parseInt(cooldownArg.split("=")[1]!, 10) : 30;
+  if (isNaN(cooldown) || cooldown < 0) throw new Error(`Invalid --cooldown value: ${cooldownArg}`);
+
+  const reset = args.includes("--reset");
+
+  return { num, cooldown, reset };
 }
 
 async function run() {
-  const { num } = parseArgs();
-  console.log(`[${new Date().toISOString()}] Pipeline started (${num} results/query)`);
+  const { num, cooldown, reset } = parseArgs();
+  console.log(`[${new Date().toISOString()}] Pipeline started (${num} results/query, cooldown: ${cooldown}d)`);
+
+  if (reset) {
+    resetAll();
+    console.log("[checkpoint] All checkpoints cleared — full re-run forced.");
+  }
 
   await ensureHeaders();
 
   let discovered = 0;
   let skipped = 0;
   let appended = 0;
+  let checkpointSkipped = 0;
 
   // Load existing leads once at the start
   const existing = await getExistingLeads();
@@ -29,6 +45,12 @@ async function run() {
 
   for (const city of CANADIAN_CITIES) {
     for (const queryTemplate of QUERY_TEMPLATES) {
+      if (!isDue(city, queryTemplate, cooldown)) {
+        console.log(`[SKIP] ${queryTemplate.replace("{city}", city)} (cooldown active)`);
+        checkpointSkipped++;
+        continue;
+      }
+
       const query = queryTemplate.replace("{city}", city);
       console.log(`Searching: ${query}`);
 
@@ -39,6 +61,8 @@ async function run() {
         console.error(`  Places search failed: ${err}`);
         continue;
       }
+
+      mark(city, queryTemplate, places.length);
 
       discovered += places.length;
       console.log(`  Found ${places.length} places`);
@@ -75,10 +99,13 @@ async function run() {
   }
 
   console.log(`\n=== Pipeline complete ===`);
-  console.log(`Discovered: ${discovered}`);
-  console.log(`Skipped:    ${skipped}`);
-  console.log(`Appended:   ${appended}`);
+  console.log(`Discovered:          ${discovered}`);
+  console.log(`Skipped (duplicate): ${skipped}`);
+  console.log(`Appended:            ${appended}`);
+  console.log(`Skipped (cooldown):  ${checkpointSkipped}`);
   console.log(`[${new Date().toISOString()}] Done`);
+
+  close();
 }
 
 run().catch((err) => {
