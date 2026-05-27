@@ -28,6 +28,7 @@ function extractDomain(url: string): string {
   }
 }
 
+
 export async function getExistingLeads(): Promise<ExistingLead[]> {
   const leads: ExistingLead[] = [];
   let offset = 0;
@@ -74,6 +75,37 @@ export async function getExistingLeads(): Promise<ExistingLead[]> {
   return leads;
 }
 
+function parseName(full: string): { first_name: string; last_name: string; full_name: string } {
+  const parts = full.trim().split(/\s+/);
+  if (parts.length === 1) return { first_name: parts[0], last_name: parts[0], full_name: full.trim() };
+  return { first_name: parts.slice(0, -1).join(" "), last_name: parts.at(-1)!, full_name: full.trim() };
+}
+
+async function upsertPerson(ownerName: string, ownerRole: string, companyRecordId: string): Promise<void> {
+  // Handle "Dr. A and Dr. B" style multi-owner strings
+  const names = ownerName.split(/\s+and\s+/i).map(n => n.trim()).filter(Boolean);
+
+  for (const name of names) {
+    const values: Record<string, unknown> = {
+      name: [parseName(name)],
+      company: [{ target_object: "companies", target_record_id: companyRecordId }],
+    };
+
+    if (ownerRole) values.job_title = [{ value: ownerRole }];
+
+    const res = await fetch(`${ATTIO_API}/objects/people/records`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ data: { values } }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Attio person upsert failed for "${name}": ${res.status} ${err}`);
+    }
+  }
+}
+
 export async function appendLead(lead: LeadRow): Promise<void> {
   const domain = extractDomain(lead.website);
 
@@ -85,11 +117,9 @@ export async function appendLead(lead: LeadRow): Promise<void> {
     values.domains = [{ domain }];
   }
 
-  // Standard Attio company attributes
   if (lead.linkedin) values.linkedin = [{ value: lead.linkedin }];
   if (lead.instagram) values.instagram = [{ value: lead.instagram }];
 
-  // Custom attributes
   if (lead.phone) {
     const e164 = lead.phone.startsWith("+") ? lead.phone : `+1${lead.phone.replace(/\D/g, "")}`;
     values.phone_number = [{ original_phone_number: e164 }];
@@ -116,6 +146,11 @@ export async function appendLead(lead: LeadRow): Promise<void> {
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Attio upsert failed for "${lead.clinicName}": ${res.status} ${err}`);
+  }
+
+  if (lead.ownerName) {
+    const json = (await res.json()) as { data: { id: { record_id: string } } };
+    await upsertPerson(lead.ownerName, lead.ownerRole, json.data.id.record_id);
   }
 }
 
