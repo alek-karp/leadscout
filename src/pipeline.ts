@@ -45,7 +45,7 @@ async function run() {
 
   for (const city of CANADIAN_CITIES) {
     for (const queryTemplate of QUERY_TEMPLATES) {
-      if (!isDue(city, queryTemplate, cooldown)) {
+      if (!isDue(city, queryTemplate, cooldown, num)) {
         console.log(`[SKIP] ${queryTemplate.replace("{city}", city)} (cooldown active)`);
         checkpointSkipped++;
         continue;

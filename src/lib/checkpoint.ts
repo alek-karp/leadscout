@@ -15,8 +15,8 @@ db.run(`
   )
 `);
 
-const stmtGet = db.prepare<{ searched_at: number }, [string, string]>(
-  "SELECT searched_at FROM search_checkpoints WHERE city = ? AND query_template = ?"
+const stmtGet = db.prepare<{ searched_at: number; result_count: number }, [string, string]>(
+  "SELECT searched_at, result_count FROM search_checkpoints WHERE city = ? AND query_template = ?"
 );
 const stmtUpsert = db.prepare(
   `INSERT INTO search_checkpoints (city, query_template, searched_at, result_count)
@@ -27,9 +27,10 @@ const stmtUpsert = db.prepare(
 );
 const stmtReset = db.prepare("DELETE FROM search_checkpoints");
 
-export function isDue(city: string, queryTemplate: string, cooldownDays: number): boolean {
+export function isDue(city: string, queryTemplate: string, cooldownDays: number, num: number): boolean {
   const row = stmtGet.get(city, queryTemplate);
   if (!row) return true;
+  if (num > row.result_count) return true;
   const ageSeconds = Math.floor(Date.now() / 1000) - row.searched_at;
   return ageSeconds >= cooldownDays * 86_400;
 }
